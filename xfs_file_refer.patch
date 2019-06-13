@@ -1,0 +1,119 @@
+--- xfs_file.c	2019-06-13 15:13:31.762541704 +0900
++++ xfs_file_profiling.c	2019-04-09 20:11:29.000000000 +0900
+@@ -44,6 +44,27 @@
+ #include <linux/falloc.h>
+ #include <linux/pagevec.h>
+ 
++#include <linux/module.h>
++#include <linux/calclock.h>
++#include <linux/percpu.h>
++
++int xfs_file_enabled = 0;
++unsigned long long xfs_file_buffered_aio_write_time[NUMCORE], xfs_file_buffered_aio_write_count[NUMCORE], xfs_rw_ilock_time[NUMCORE], xfs_rw_ilock_count[NUMCORE], generic_file_buffered_write_time[NUMCORE], generic_file_buffered_write_count[NUMCORE], xfs_rw_iunlock_time[NUMCORE], xfs_rw_iunlock_count[NUMCORE];
++
++unsigned long long calclock_time[NUMCORE], calclock_count[NUMCORE];
++
++EXPORT_SYMBOL(xfs_file_enabled);
++EXPORT_SYMBOL(xfs_file_buffered_aio_write_time);
++EXPORT_SYMBOL(xfs_file_buffered_aio_write_count);
++EXPORT_SYMBOL(xfs_rw_ilock_time);
++EXPORT_SYMBOL(xfs_rw_ilock_count);
++EXPORT_SYMBOL(xfs_rw_iunlock_time);
++EXPORT_SYMBOL(xfs_rw_iunlock_count);
++EXPORT_SYMBOL(generic_file_buffered_write_time);
++EXPORT_SYMBOL(generic_file_buffered_write_count);
++EXPORT_SYMBOL(calclock_time);
++EXPORT_SYMBOL(calclock_count);
++
+ static const struct vm_operations_struct xfs_file_vm_ops;
+ 
+ /*
+@@ -723,7 +744,20 @@
+ 	int			iolock = XFS_IOLOCK_EXCL;
+ 	size_t			count = ocount;
+ 
+-	xfs_rw_ilock(ip, iolock);
++  //dhkoo
++  if (!xfs_file_enabled){
++	  xfs_rw_ilock(ip, iolock);
++  }
++  else {
++    struct timespec local_time[4];
++    getrawmonotonic(&local_time[0]);
++	  xfs_rw_ilock(ip, iolock);
++    getrawmonotonic(&local_time[1]);
++    getrawmonotonic(&local_time[2]);
++    calclock(local_time, &xfs_rw_ilock_time[smp_processor_id()], &xfs_rw_ilock_count[smp_processor_id()]);
++    getrawmonotonic(&local_time[3]);
++    calclock(local_time, &calclock_time[smp_processor_id()], &calclock_count[smp_processor_id()]);
++  }
+ 
+ 	ret = xfs_file_aio_write_checks(file, &pos, &count, &iolock);
+ 	if (ret)
+@@ -734,8 +768,17 @@
+ 
+ write_retry:
+ 	trace_xfs_file_buffered_write(ip, count, iocb->ki_pos, 0);
+-	ret = generic_file_buffered_write(iocb, iovp, nr_segs,
+-			pos, &iocb->ki_pos, count, 0);
++  //dhkoo
++  if (!xfs_file_enabled){
++	  ret = generic_file_buffered_write(iocb, iovp, nr_segs, pos, &iocb->ki_pos, count, 0);
++  }
++  else {
++    struct timespec local_time[2];
++    getrawmonotonic(&local_time[0]);
++	  ret = generic_file_buffered_write(iocb, iovp, nr_segs, pos, &iocb->ki_pos, count, 0);
++    getrawmonotonic(&local_time[1]);
++    calclock(local_time, &generic_file_buffered_write_time[smp_processor_id()], &generic_file_buffered_write_count[smp_processor_id()]);
++  }
+ 
+ 	/*
+ 	 * If we just got an ENOSPC, try to write back all dirty inodes to
+@@ -750,7 +793,17 @@
+ 
+ 	current->backing_dev_info = NULL;
+ out:
+-	xfs_rw_iunlock(ip, iolock);
++  //dhkoo
++  if (!xfs_file_enabled){
++	  xfs_rw_iunlock(ip, iolock);
++  }
++  else {
++    struct timespec local_time[2];
++    getrawmonotonic(&local_time[0]);
++	  xfs_rw_iunlock(ip, iolock);
++    getrawmonotonic(&local_time[1]);
++    calclock(local_time, &xfs_rw_iunlock_time[smp_processor_id()], &xfs_rw_iunlock_count[smp_processor_id()]);
++  }
+ 	return ret;
+ }
+ 
+@@ -784,12 +837,22 @@
+ 		goto out;
+ 	}
+ 
+-	if (unlikely(file->f_flags & O_DIRECT))
++	if (unlikely(file->f_flags & O_DIRECT)) {
+ 		ret = xfs_file_dio_aio_write(iocb, iovp, nr_segs, pos, ocount);
+-	else
+-		ret = xfs_file_buffered_aio_write(iocb, iovp, nr_segs, pos,
+-						  ocount);
+-
++  }
++	else {
++    //dhkoo
++    if (!xfs_file_enabled){
++      ret = xfs_file_buffered_aio_write(iocb, iovp, nr_segs, pos, ocount);
++		}
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++      ret = xfs_file_buffered_aio_write(iocb, iovp, nr_segs, pos, ocount);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &xfs_file_buffered_aio_write_time[smp_processor_id()], &xfs_file_buffered_aio_write_count[smp_processor_id()]);
++    }
++  }
+ 	if (ret > 0) {
+ 		ssize_t err;
+ 

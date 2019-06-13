@@ -1,0 +1,227 @@
+--- filemap.c	2019-06-13 15:22:26.625797667 +0900
++++ filemap_profiling.c	2019-04-09 20:11:09.000000000 +0900
+@@ -45,6 +45,38 @@
+ 
+ #include <asm/mman.h>
+ 
++#include <linux/calclock.h>
++#include <linux/module.h>
++
++int filemap_enabled = 0;
++int filemap_enabled_2 = 0;
++unsigned long long write_begin_time[NUMCORE], write_begin_count[NUMCORE], generic_perform_write_time[NUMCORE], generic_perform_write_count[NUMCORE], iov_iter_copy_from_user_atomic_time[NUMCORE], iov_iter_copy_from_user_atomic_count[NUMCORE], write_end_time[NUMCORE], write_end_count[NUMCORE], flush_dcache_page_time1[NUMCORE], flush_dcache_page_count1[NUMCORE], pagefault_disable_time[NUMCORE], pagefault_disable_count[NUMCORE], pagefault_enable_time[NUMCORE], pagefault_enable_count[NUMCORE], flush_dcache_page_time2[NUMCORE], flush_dcache_page_count2[NUMCORE], mark_page_accessed_time[NUMCORE], mark_page_accessed_count[NUMCORE], cond_resched_time[NUMCORE], cond_resched_count[NUMCORE], iov_iter_advance_time[NUMCORE], iov_iter_advance_count[NUMCORE], balance_dirty_pages_ratelimited_time[NUMCORE], balance_dirty_pages_ratelimited_count[NUMCORE];
++EXPORT_SYMBOL(filemap_enabled);
++EXPORT_SYMBOL(filemap_enabled_2);
++EXPORT_SYMBOL(flush_dcache_page_time1);
++EXPORT_SYMBOL(flush_dcache_page_count1);
++EXPORT_SYMBOL(flush_dcache_page_time2);
++EXPORT_SYMBOL(flush_dcache_page_count2);
++EXPORT_SYMBOL(write_begin_time);
++EXPORT_SYMBOL(write_begin_count);
++EXPORT_SYMBOL(pagefault_disable_time);
++EXPORT_SYMBOL(pagefault_disable_count);
++EXPORT_SYMBOL(pagefault_enable_time);
++EXPORT_SYMBOL(pagefault_enable_count);
++EXPORT_SYMBOL(generic_perform_write_time);
++EXPORT_SYMBOL(generic_perform_write_count);
++EXPORT_SYMBOL(mark_page_accessed_time);
++EXPORT_SYMBOL(mark_page_accessed_count);
++EXPORT_SYMBOL(iov_iter_copy_from_user_atomic_time);
++EXPORT_SYMBOL(iov_iter_copy_from_user_atomic_count);
++EXPORT_SYMBOL(write_end_time);
++EXPORT_SYMBOL(write_end_count);
++EXPORT_SYMBOL(cond_resched_time);
++EXPORT_SYMBOL(cond_resched_count);
++EXPORT_SYMBOL(iov_iter_advance_time);
++EXPORT_SYMBOL(iov_iter_advance_count);
++EXPORT_SYMBOL(balance_dirty_pages_ratelimited_time);
++EXPORT_SYMBOL(balance_dirty_pages_ratelimited_count);
+ /*
+  * Shared mappings implemented 30.11.1994. It's not fully working yet,
+  * though.
+@@ -2341,30 +2373,132 @@
+ 			status = -EFAULT;
+ 			break;
+ 		}
+-
+-		status = a_ops->write_begin(file, mapping, pos, bytes, flags,
+-						&page, &fsdata);
++    
++    //dhkoo
++    if (!filemap_enabled) {
++		  status = a_ops->write_begin(file, mapping, pos, bytes, flags, &page, &fsdata);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  status = a_ops->write_begin(file, mapping, pos, bytes, flags, &page, &fsdata);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &write_begin_time[smp_processor_id()], &write_begin_count[smp_processor_id()]);
++    }
+ 		if (unlikely(status))
+ 			break;
+ 
++    //dhkoo
++    if (!filemap_enabled) {
++		  if (mapping_writably_mapped(mapping))
++			  flush_dcache_page(page);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  if (mapping_writably_mapped(mapping))
++			  flush_dcache_page(page);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &flush_dcache_page_time1[smp_processor_id()], &flush_dcache_page_count1[smp_processor_id()]);
++    }
+ 		if (mapping_writably_mapped(mapping))
+ 			flush_dcache_page(page);
+ 
+-		pagefault_disable();
+-		copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);
+-		pagefault_enable();
+-		flush_dcache_page(page);
+-
+-		mark_page_accessed(page);
+-		status = a_ops->write_end(file, mapping, pos, bytes, copied,
+-						page, fsdata);
++    //dhkoo 
++    if (!filemap_enabled) {
++		  pagefault_disable();
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  pagefault_disable();
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &pagefault_disable_time[smp_processor_id()], &pagefault_disable_count[smp_processor_id()]);
++    }
++    //dhkoo
++    if (!filemap_enabled) {
++		  copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &iov_iter_copy_from_user_atomic_time[smp_processor_id()], &iov_iter_copy_from_user_atomic_count[smp_processor_id()]);
++    }
++    //dhkoo 
++    if (!filemap_enabled) {
++		  pagefault_enable();
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  pagefault_enable();
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &pagefault_enable_time[smp_processor_id()], &pagefault_enable_count[smp_processor_id()]);
++    }
++    //dhkoo 
++    if (!filemap_enabled) {
++		  flush_dcache_page(page);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  flush_dcache_page(page);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &flush_dcache_page_time2[smp_processor_id()], &flush_dcache_page_count2[smp_processor_id()]);
++    }
++
++    //dhkoo 
++    if (!filemap_enabled) {
++		  mark_page_accessed(page);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  mark_page_accessed(page);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &mark_page_accessed_time[smp_processor_id()], &mark_page_accessed_count[smp_processor_id()]);
++    }
++
++    //dhkoo
++    if (!filemap_enabled) {
++		  status = a_ops->write_end(file, mapping, pos, bytes, copied, page, fsdata);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  status = a_ops->write_end(file, mapping, pos, bytes, copied, page, fsdata);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &write_end_time[smp_processor_id()], &write_end_count[smp_processor_id()]);
++    }
+ 		if (unlikely(status < 0))
+ 			break;
+ 		copied = status;
+ 
+-		cond_resched();
+-
+-		iov_iter_advance(i, copied);
++    //dhkoo
++    if (!filemap_enabled) {
++		  cond_resched();
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  cond_resched();
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &write_end_time[smp_processor_id()], &write_end_count[smp_processor_id()]);
++    }
++
++    //dhkoo
++    if (!filemap_enabled) {
++		  iov_iter_advance(i, copied);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  iov_iter_advance(i, copied);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &iov_iter_advance_time[smp_processor_id()], &iov_iter_advance_count[smp_processor_id()]);
++    }
+ 		if (unlikely(copied == 0)) {
+ 			/*
+ 			 * If we were unable to copy any data at all, we must
+@@ -2381,7 +2515,18 @@
+ 		pos += copied;
+ 		written += copied;
+ 
+-		balance_dirty_pages_ratelimited(mapping);
++    //dhkoo
++    if (!filemap_enabled) {
++		  balance_dirty_pages_ratelimited(mapping);
++    }
++    else {
++      struct timespec local_time[2];
++      getrawmonotonic(&local_time[0]);
++		  balance_dirty_pages_ratelimited(mapping);
++      getrawmonotonic(&local_time[1]);
++      calclock(local_time, &iov_iter_advance_time[smp_processor_id()], &iov_iter_advance_count[smp_processor_id()]);
++    }
++
+ 		if (fatal_signal_pending(current)) {
+ 			status = -EINTR;
+ 			break;
+@@ -2401,7 +2546,17 @@
+ 	struct iov_iter i;
+ 
+ 	iov_iter_init(&i, iov, nr_segs, count, written);
+-	status = generic_perform_write(file, &i, pos);
++  //dhkoo
++  if (!filemap_enabled_2) {
++	  status = generic_perform_write(file, &i, pos);
++  }
++  else {
++    struct timespec local_time[2];
++    getrawmonotonic(&local_time[0]);
++	  status = generic_perform_write(file, &i, pos);
++    getrawmonotonic(&local_time[1]);
++    calclock(local_time, &generic_perform_write_time[smp_processor_id()], &generic_perform_write_count[smp_processor_id()]);
++  }
+ 
+ 	if (likely(status >= 0)) {
+ 		written += status;
